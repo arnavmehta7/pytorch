@@ -77,6 +77,7 @@ from .utils import (
     node_arg_is_weight,
     node_arg_is_bias,
     NON_QUANTIZABLE_WEIGHT_OPS,
+    _is_custom_module_lstm,
 )
 
 from torch.ao.quantization.quantize import (
@@ -770,8 +771,12 @@ def maybe_insert_output_observer_for_node(
                 matched_pattern,
                 is_qat)
         observer = act_post_process_ctr()
-        new_obs = insert_observer(node, observer, model, modules, graph)
-        return new_obs
+
+        # TODO(andrew): add comment here
+        if _is_custom_module_lstm(node):
+            return None
+        else:
+            return insert_observer(node, observer, model, modules, graph)
     else:
         return None
 
@@ -1279,6 +1284,7 @@ def insert_observers_for_model(
 
                             is_observer_in_same_graph_ = is_observer_in_same_graph(node, modules, node_name_to_target_dtype)
 
+                        if maybe_output_obs_node is not None or _is_custom_module_lstm(node):
                             # for general tensor value ops, we modify the graph
                             # to make all inputs and outputs use the first input's
                             # observer

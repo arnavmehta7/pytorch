@@ -640,3 +640,10 @@ def get_skipped_module_name_and_classes(
         skipped_module_classes += get_custom_module_class_keys(prepare_custom_config.float_to_observed_mapping)
 
     return skipped_module_names, skipped_module_classes
+
+def _is_custom_module_lstm(node: Node) -> bool:
+    """
+    Return whether this refers to the custom module LSTM flow.
+    """
+    # TODO(andrew): differentiate this from dynamic quantization
+    return node.op == "call_module" and node.target == "lstm"
