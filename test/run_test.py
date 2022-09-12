@@ -381,12 +381,12 @@ def run_test(
     env=None,
 ):
     unittest_args = options.additional_unittest_args.copy()
-    unittest_args.extend(extra_unittest_args)
+    unittest_args.extend(extra_unittest_args or [])
     if test_module not in PYTEST_INCOMPATIBLE:
         which_shard, num_shards = options.shard
         subprocess.run(["python", "-m", "pip", "install", "pytest-shard"])
         unittest_args.extend(["--use-pytest", '-vv', '-x', '--reruns=2', '-rfEX',
-                              f'--shard-id={which_shard}', f'--num-shards={num_shards}'])
+                              f'--shard-id={which_shard - 1}', f'--num-shards={num_shards}'])
 
     if IS_CI:
         # use the downloaded test cases configuration, not supported in pytest
@@ -985,35 +985,10 @@ def get_selected_tests(options):
         assert len(options.shard) == 2, "Unexpected shard format"
         assert min(options.shard) > 0, "Shards must be positive numbers"
         which_shard, num_shards = options.shard
-        assert (
-            which_shard <= num_shards
-        ), "Selected shard must be less than or equal to total number of shards"
-        assert num_shards <= len(
-            selected_tests
-        ), f"Number of shards must be less than {len(selected_tests)}"
-
-        if num_shards == 1:
-            return selected_tests
-
-        # Download previous test times to make sharding decisions
-        path = os.path.join(str(REPO_ROOT), TEST_TIMES_FILE)
-        if os.path.exists(path):
-            with open(path, "r") as f:
-                test_file_times = cast(Dict[str, Any], json.load(f))
-        else:
-            test_file_times = {}
-        test_config = os.environ.get("TEST_CONFIG")
-        if test_config not in test_file_times:
-            print(
-                "::warning:: Gathered no stats from artifacts. Proceeding with default sharding plan."
-            )
-            selected_tests = selected_tests[which_shard - 1 :: num_shards]
-        else:
-            print("Found test time stats from artifacts")
-            test_file_times_config = test_file_times[test_config]
-            shards = calculate_shards(num_shards, selected_tests, test_file_times_config)
-            _, tests_from_shard = shards[which_shard - 1]
-            selected_tests = tests_from_shard
+        assert which_shard <= num_shards, "Selected shard must be less than or equal to total number of shards"
+        assert num_shards <= len(selected_tests), f"Number of shards must be less than {len(selected_tests)}"
+        if which_shard != 1:
+            selected_tests = [x for x in selected_tests if x not in PYTEST_INCOMPATIBLE]
 
     # skip all distributed tests if distributed package is not available.
     if not dist.is_available():
