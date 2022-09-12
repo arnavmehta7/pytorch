@@ -750,7 +750,9 @@ def run_tests(argv=UNITTEST_ARGS):
         test_report_path = TEST_SAVE_XML + LOG_SUFFIX
         test_report_path = os.path.join(test_report_path, test_filename)
         build_environment = os.environ.get("BUILD_ENVIRONMENT", "")
-        if not IS_SANDCASTLE and not (
+        if test_filename in PYTEST_FILES:
+            exit(0)
+        elif not IS_SANDCASTLE and not (
             "cuda" in build_environment and "linux" in build_environment
         ):
             # exclude linux cuda tests because we run into memory issues when running in parallel
@@ -763,11 +765,10 @@ def run_tests(argv=UNITTEST_ARGS):
             pytest_report_path = os.path.join(pytest_report_path, f"{test_filename}.xml")
             print(f'Test results will be stored in {pytest_report_path}')
             # mac slower on 4 proc than 3
-            num_procs = 3 if "macos" in build_environment else 4
             # f = failed
             # E = error
             # X = unexpected success
-            exit_code = pytest.main(args=[inspect.getfile(sys._getframe(1)), f'-n={num_procs}', '-vv', '-x',
+            exit_code = pytest.main(args=[inspect.getfile(sys._getframe(1)), '-vv', '-x',
                                     '--reruns=2', '-rfEX', f'--junit-xml-reruns={pytest_report_path}'])
             del os.environ["USING_PYTEST"]
             sanitize_pytest_xml(f'{pytest_report_path}')
