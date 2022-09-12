@@ -664,6 +664,26 @@ def forward(self, x_1):
         self.assertFalse(has_proxy(torch.randn(5)))
         make_fx(f)(torch.randn(5))
 
+    def test_strides(self):
+        def f(x):
+            self.assertTrue(x.is_contiguous())
+            self.assertFalse(x.is_contiguous(memory_format=torch.channels_last))
+            x = x.permute(0, 3, 1, 2)
+            self.assertFalse(x.is_contiguous())
+            self.assertTrue(x.is_contiguous(memory_format=torch.channels_last))
+            return x
+        make_fx(f)(torch.randn(2, 3, 4, 5))
+
+        def f(x):
+            self.assertTrue(x.is_contiguous())
+            y = x[:, 1]
+            self.assertFalse(y.is_contiguous())
+            y = x[:, ::2]
+            self.assertFalse(y.is_contiguous())
+            return x.cos()
+
+        make_fx(f)(torch.randn(2, 3, 4, 5))
+
 class TestGenericProxyTensorReal(TestGenericProxyTensor):
     tracing_mode = "real"
 
