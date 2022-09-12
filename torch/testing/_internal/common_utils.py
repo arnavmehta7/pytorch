@@ -95,8 +95,6 @@ from .composite_compliance import no_dispatch
 
 torch.backends.disable_global_flags()
 
-PYTEST_FILES = ["test_ops", "test_ops_gradients", "test_ops_jit"]
-
 FILE_SCHEMA = "file://"
 if sys.platform == 'win32':
     FILE_SCHEMA = "file:///"
@@ -498,6 +496,7 @@ parser.add_argument('--accept', action='store_true')
 parser.add_argument('--jit_executor', type=str)
 parser.add_argument('--repeat', type=int, default=1)
 parser.add_argument('--test_bailouts', action='store_true')
+parser.add_argument('--use-pytest', action='store_true')
 parser.add_argument('--save-xml', nargs='?', type=str,
                     const=_get_test_report_path(),
                     default=_get_test_report_path() if IS_CI else None)
@@ -533,6 +532,7 @@ DISABLED_TESTS_FILE = args.import_disabled_tests
 LOG_SUFFIX = args.log_suffix
 RUN_PARALLEL = args.run_parallel
 TEST_BAILOUTS = args.test_bailouts
+USE_PYTEST = args.use_pytest
 TEST_DISCOVER = args.discover_tests
 TEST_IN_SUBPROCESS = args.subprocess
 TEST_SAVE_XML = args.save_xml
@@ -638,6 +638,22 @@ def lint_test_case_extension(suite):
                 succeed = False
     return succeed
 
+
+def get_report_path(pytest=False):
+    test_filename = inspect.getfile(sys._getframe(2))
+    test_filename = sanitize_if_functorch_test_filename(test_filename)
+    test_filename = sanitize_test_filename(test_filename)
+    test_report_path = TEST_SAVE_XML + LOG_SUFFIX
+    test_report_path = os.path.join(test_report_path, test_filename)
+    if pytest:
+        test_report_path = test_report_path.replace('python-unittest', 'python-pytest')
+        os.makedirs(test_report_path, exist_ok=True)
+        test_report_path = os.path.join(test_report_path, f"{test_filename}-{os.urandom(8).hex()}.xml")
+        return test_report_path
+    os.makedirs(test_report_path, exist_ok=True)
+    return test_report_path
+
+
 def sanitize_pytest_xml(xml_file: str):
     # pytext xml is different from unittext xml, this function makes pytest xml more similar to unittest xml
     # consider somehow modifying the XML logger in conftest to do this instead
@@ -718,6 +734,22 @@ def run_tests(argv=UNITTEST_ARGS):
         for p in processes:
             failed |= wait_for_process(p) != 0
         assert not failed, "Some test shards have failed"
+    elif USE_PYTEST:
+        if TEST_SAVE_XML:
+            test_report_path = get_report_path(pytest=True)
+            print(f'Test results will be stored in {test_report_path}')
+
+        import pytest
+        os.environ["NO_COLOR"] = "1"
+        os.environ["USING_PYTEST"] = "1"
+        exit_code = pytest.main(args=argv + [f'--junit-xml-reruns={test_report_path}'] if TEST_SAVE_XML else [])
+        del os.environ["USING_PYTEST"]
+        if TEST_SAVE_XML:
+            sanitize_pytest_xml(test_report_path)
+        print("If in CI, skip info is located in the xml test reports, please either go to s3 or the hud to download them")
+        # exitcode of 5 means no tests were found, which happens since some test configs don't
+        # run tests from certain files
+        exit(0 if exit_code == 5 else exit_code)
     elif TEST_SAVE_XML is not None:
         # import here so that non-CI doesn't need xmlrunner installed
         import xmlrunner  # type: ignore[import]
@@ -744,45 +776,14 @@ def run_tests(argv=UNITTEST_ARGS):
                         # it stands for `verbose_str` captured in the closure
                         c.cell_contents = f"skip: {reason}"
 
-        test_filename = inspect.getfile(sys._getframe(1))
-        test_filename = sanitize_if_functorch_test_filename(test_filename)
-        test_filename = sanitize_test_filename(test_filename)
-        test_report_path = TEST_SAVE_XML + LOG_SUFFIX
-        test_report_path = os.path.join(test_report_path, test_filename)
-        build_environment = os.environ.get("BUILD_ENVIRONMENT", "")
-        if test_filename in PYTEST_FILES:
-            exit(0)
-        elif not IS_SANDCASTLE:
-            # exclude linux cuda tests because we run into memory issues when running in parallel
-            import pytest
-            os.environ["NO_COLOR"] = "1"
-            os.environ["USING_PYTEST"] = "1"
-            pytest_report_path = test_report_path.replace('python-unittest', 'python-pytest')
-            os.makedirs(pytest_report_path, exist_ok=True)
-            # part of our xml parsing looks for grandparent folder names
-            pytest_report_path = os.path.join(pytest_report_path, f"{test_filename}.xml")
-            print(f'Test results will be stored in {pytest_report_path}')
-            # mac slower on 4 proc than 3
-            # f = failed
-            # E = error
-            # X = unexpected success
-            exit_code = pytest.main(args=[inspect.getfile(sys._getframe(1)), '-vv', '-x',
-                                    '--reruns=2', '-rfEX', f'--junit-xml-reruns={pytest_report_path}'])
-            del os.environ["USING_PYTEST"]
-            sanitize_pytest_xml(f'{pytest_report_path}')
-            print("Skip info is located in the xml test reports, please either go to s3 or the hud to download them")
-            # exitcode of 5 means no tests were found, which happens since some test configs don't
-            # run tests from certain files
-            exit(0 if exit_code == 5 else exit_code)
-        else:
-            os.makedirs(test_report_path, exist_ok=True)
-            verbose = '--verbose' in argv or '-v' in argv
-            if verbose:
-                print(f'Test results will be stored in {test_report_path}')
-            unittest.main(argv=argv, testRunner=xmlrunner.XMLTestRunner(
-                output=test_report_path,
-                verbosity=2 if verbose else 1,
-                resultclass=XMLTestResultVerbose))
+        test_report_path = get_report_path()
+        verbose = '--verbose' in argv or '-v' in argv
+        if verbose:
+            print(f'Test results will be stored in {test_report_path}')
+        unittest.main(argv=argv, testRunner=xmlrunner.XMLTestRunner(
+            output=test_report_path,
+            verbosity=2 if verbose else 1,
+            resultclass=XMLTestResultVerbose))
     elif REPEAT_COUNT > 1:
         for _ in range(REPEAT_COUNT):
             if not unittest.main(exit=False, argv=argv).result.wasSuccessful():

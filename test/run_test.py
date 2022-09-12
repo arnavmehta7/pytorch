@@ -284,6 +284,7 @@ PYTEST_INCOMPATIBLE = [
     "test_fx",  # symbolically traced variables cannot be used as inputs to control flow
     "lazy/test_reuse_ir",  # Tried to register multiple backend fallbacks
     "lazy/test_step_closures",  # Tried to register multiple backend fallbacks
+    "lazy/test_ts_opinfo",  # Tried to register multiple backend fallbacks
     "test_mps",  # 'TestAvgPool' object has no attribute 'assertRaisesRegex'
 ]
 
