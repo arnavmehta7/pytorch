@@ -752,9 +752,7 @@ def run_tests(argv=UNITTEST_ARGS):
         build_environment = os.environ.get("BUILD_ENVIRONMENT", "")
         if test_filename in PYTEST_FILES:
             exit(0)
-        elif not IS_SANDCASTLE and not (
-            "cuda" in build_environment and "linux" in build_environment
-        ):
+        elif not IS_SANDCASTLE:
             # exclude linux cuda tests because we run into memory issues when running in parallel
             import pytest
             os.environ["NO_COLOR"] = "1"
