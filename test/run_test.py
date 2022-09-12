@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-from asyncio import selector_events
 import copy
 from datetime import datetime
 from distutils.util import strtobool
@@ -279,10 +278,13 @@ CORE_TEST_LIST = [
 
 PYTEST_INCOMPATIBLE = [
     "test_jit",  # test_warn, I think pytest eats warnings
+    "test_jit_legacy",  # test_warn, I think pytest eats warnings
     "test_quantization",  # class for op dummy_quant not implemented
     "test_nn",  # test collection results in extra test?
     "test_fx",  # symbolically traced variables cannot be used as inputs to control flow
     "lazy/test_reuse_ir",  # Tried to register multiple backend fallbacks
+    "lazy/test_step_closures",  # Tried to register multiple backend fallbacks
+    "test_mps",  # 'TestAvgPool' object has no attribute 'assertRaisesRegex'
 ]
 
 # if a test file takes longer than 5 min, we add it to TARGET_DET_LIST
@@ -367,13 +369,6 @@ def get_executable_command(options, allow_pytest, disable_coverage=False):
         executable = ["coverage", "run", "--parallel-mode", "--source=torch"]
     else:
         executable = [sys.executable, "-bb"]
-    if options.pytest:
-        if allow_pytest:
-            executable += ["-m", "pytest"]
-        else:
-            print_to_stderr(
-                "Pytest cannot be used for this test. Falling back to unittest."
-            )
     return executable
 
 
@@ -386,27 +381,19 @@ def run_test(
     env=None,
 ):
     unittest_args = options.additional_unittest_args.copy()
-    if options.verbose:
-        unittest_args.append(f'-{"v"*options.verbose}')  # in case of pytest
-    if test_module in RUN_PARALLEL_BLOCKLIST:
-        unittest_args = [
-            arg for arg in unittest_args if not arg.startswith("--run-parallel")
-        ]
-    if extra_unittest_args:
-        assert isinstance(extra_unittest_args, list)
-        unittest_args.extend(extra_unittest_args)
+    unittest_args.extend(extra_unittest_args)
+    if test_module not in PYTEST_INCOMPATIBLE:
+        which_shard, num_shards = options.shard
+        subprocess.run(["python", "-m", "pip", "install", "pytest-shard"])
+        unittest_args.extend(["--use-pytest", '-vv', '-x', '--reruns=2', '-rfEX',
+                              f'--shard-id={which_shard}', f'--num-shards={num_shards}'])
 
-    # If using pytest, replace -f with equivalent -x
-    if options.pytest:
-        unittest_args = [arg if arg != "-f" else "-x" for arg in unittest_args]
-    elif IS_CI:
+    if IS_CI:
         # use the downloaded test cases configuration, not supported in pytest
         unittest_args.extend(["--import-slow-tests", "--import-disabled-tests"])
 
     # Extra arguments are not supported with pytest
-    executable = get_executable_command(
-        options, allow_pytest=not extra_unittest_args
-    )
+    executable = get_executable_command(options, allow_pytest=not extra_unittest_args)
 
     # Can't call `python -m unittest test_*` here because it doesn't run code
     # in `if __name__ == '__main__': `. So call `python test_*.py` instead.
