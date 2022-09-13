@@ -370,6 +370,13 @@ def get_executable_command(options, allow_pytest, disable_coverage=False):
         executable = ["coverage", "run", "--parallel-mode", "--source=torch"]
     else:
         executable = [sys.executable, "-bb"]
+    if options.pytest:
+        if allow_pytest:
+            executable += ["-m", "pytest"]
+        else:
+            print_to_stderr(
+                "Pytest cannot be used for this test. Falling back to unittest."
+            )
     return executable
 
 
@@ -383,7 +390,7 @@ def run_test(
 ):
     unittest_args = options.additional_unittest_args.copy()
     unittest_args.extend(extra_unittest_args or [])
-    if test_module not in PYTEST_INCOMPATIBLE:
+    if test_module not in PYTEST_INCOMPATIBLE and not options.pytest:
         which_shard, num_shards = options.shard or (1, 1)
         subprocess.run(["python", "-m", "pip", "install", "pytest-shard"])
         unittest_args.extend(["--use-pytest", '-vv', '-x', '--reruns=2', '-rfEX',
