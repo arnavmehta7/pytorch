@@ -457,11 +457,10 @@ Tensor& addmm_out_sparse_compressed_cpu(
       mat1.size(1) == mat2.size(0), "mat1 and mat2 shapes cannot be multiplied (",
       mat1.size(0), "x", mat1.size(1), " and ", mat2.sizes()[0], "x", mat2.sizes()[1], ")");
 
-  if (mat1.layout() == kSparseCsc || mat2.layout() == kSparseCsc) {
+  if (mat1.layout() == kSparseCsc && mat2.layout() == kSparseCsc) {
     return addmm_out_sparse_compressed_cpu(
         self, mat1.to_sparse_csr(), mat2.to_sparse_csr(), beta, alpha, result);
   }
-
   c10::MaybeOwned<at::Tensor> self_;
   // Don't expand self if this is an in-place operation
   if (&result == &self) {
@@ -550,7 +549,8 @@ Tensor& _sparse_csr_mm_out(
     // TODO: replace with at::zeros when it's implemented for sparse csr
     zero = at::empty({mat1.size(0), mat2.size(1)}, mat2.options());
   } else {
-    zero = at::zeros({mat1.size(0), mat2.size(1)}, mat2.options());
+    zero = at::zeros(
+        {mat1.size(0), mat2.size(1)}, mat2.options().layout(result.layout()));
   }
   return at::addmm_out(result, zero, mat1, mat2, 0.0, 1.0);
 }
@@ -579,7 +579,8 @@ Tensor _sparse_csr_mm(const Tensor& mat1, const Tensor& mat2) {
     // native support for CSC.
     return _sparse_csr_mm(mat1.to_sparse_csr(), mat2);
   }
-  if (mat1.is_sparse_csr() && mat2.layout() == c10::kStrided) {
+  if ((mat1.is_sparse_csr() || (mat1.layout() == kSparseBsr)) &&
+      mat2.layout() == c10::kStrided) {
     // Return dense
     return at::addmm(
         at::zeros({mat1.size(0), mat2.size(1)}, mat2.options()),
@@ -596,6 +597,18 @@ Tensor _sparse_csr_mm(const Tensor& mat1, const Tensor& mat2) {
         mat2,
         0.0,
         1.0);
+  }
+  if (mat1.layout() == c10::kStrided &&
+      (mat2.layout() == kSparseCsc || mat2.layout() == kSparseBsc)) {
+    // csc.transpose() -> csr or bsc.transpose() -> bsr
+    //  perform (mat2^T x mat1^T)^T
+    return at::addmm(
+               at::zeros({mat2.size(1), mat1.size(0)}, mat1.options()),
+               mat2.t(),
+               mat1.t(),
+               0.0,
+               1.0)
+        .t();
   }
   AT_ERROR("_sparse_csr_mm does not support matrix multiplication of ", mat1.layout(), " @ ", mat2.layout());
 }
