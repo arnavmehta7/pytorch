@@ -286,6 +286,7 @@ PYTEST_INCOMPATIBLE = [
     "lazy/test_step_closures",  # Tried to register multiple backend fallbacks
     "lazy/test_ts_opinfo",  # Tried to register multiple backend fallbacks
     "test_mps",  # 'TestAvgPool' object has no attribute 'assertRaisesRegex'
+    "test_multiprocessing",  # some assertion failure about has_shm_files
 ]
 
 # if a test file takes longer than 5 min, we add it to TARGET_DET_LIST

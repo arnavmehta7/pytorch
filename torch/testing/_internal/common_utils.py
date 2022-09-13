@@ -647,8 +647,8 @@ def get_report_path(pytest=False):
     test_report_path = os.path.join(test_report_path, test_filename)
     if pytest:
         test_report_path = test_report_path.replace('python-unittest', 'python-pytest')
-        os.makedirs(test_report_path, exist_ok=True)
         test_report_path = os.path.join(test_report_path, f"{test_filename}-{os.urandom(8).hex()}.xml")
+        os.makedirs(Path(test_report_path).parent, exist_ok=True)
         return test_report_path
     os.makedirs(test_report_path, exist_ok=True)
     return test_report_path
