@@ -660,12 +660,9 @@ def sanitize_pytest_xml(xml_file: str):
     import xml.etree.ElementTree as ET
     tree = ET.parse(xml_file)
     for testcase in tree.iter('testcase'):
-        full_classname = testcase.attrib['classname']
-        regex_result = re.search(r"^test\.(.*)\.([^\.]*)$", full_classname)
-        classname = regex_result.group(2)
-        file = regex_result.group(1).replace('.', "/")
+        classname = testcase.attrib['classname'].split(".")[-1]
         testcase.set('classname', classname)
-        testcase.set('file', f"{file}.py")
+        testcase.set('file', inspect.getfile(sys._getframe(2)))
     tree.write(xml_file)
 
 def run_tests(argv=UNITTEST_ARGS):
