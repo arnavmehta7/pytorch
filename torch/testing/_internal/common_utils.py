@@ -707,6 +707,8 @@ def run_tests(argv=UNITTEST_ARGS):
                 other_args.append('--import-disabled-tests')
             if SLOW_TESTS_FILE:
                 other_args.append('--import-slow-tests')
+            if USE_PYTEST:
+                other_args.append('--use-pytest')
             cmd = [sys.executable] + [argv[0]] + other_args + argv[1:] + [test_case_full_name]
             string_cmd = " ".join(cmd)
             exitcode = shell(cmd)
