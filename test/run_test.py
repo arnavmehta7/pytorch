@@ -384,7 +384,7 @@ def run_test(
     unittest_args = options.additional_unittest_args.copy()
     unittest_args.extend(extra_unittest_args or [])
     if test_module not in PYTEST_INCOMPATIBLE:
-        which_shard, num_shards = options.shard or (1,1)
+        which_shard, num_shards = options.shard or (1, 1)
         subprocess.run(["python", "-m", "pip", "install", "pytest-shard"])
         unittest_args.extend(["--use-pytest", '-vv', '-x', '--reruns=2', '-rfEX',
                               f'--shard-id={which_shard - 1}', f'--num-shards={num_shards}'])
