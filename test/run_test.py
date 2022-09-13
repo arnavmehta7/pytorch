@@ -396,7 +396,7 @@ def run_test(
         unittest_args.extend(["--use-pytest", '-vv', '-x', '--reruns=2', '-rfEX',
                               f'--shard-id={which_shard - 1}', f'--num-shards={num_shards}'])
 
-    if IS_CI:
+    if IS_CI and not options.pytest:
         # use the downloaded test cases configuration, not supported in pytest
         unittest_args.extend(["--import-slow-tests", "--import-disabled-tests"])
 
