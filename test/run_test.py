@@ -5,7 +5,6 @@ import copy
 from datetime import datetime
 from distutils.util import strtobool
 from distutils.version import LooseVersion
-import functools
 import os
 import pathlib
 import shutil
@@ -13,8 +12,7 @@ import signal
 import subprocess
 import sys
 import tempfile
-import json
-from typing import Dict, Optional, List, cast, Any
+from typing import Optional, List
 
 import torch
 from torch.utils import cpp_extension
@@ -34,11 +32,9 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 try:
     # using tools/ to optimize test run.
     sys.path.append(str(REPO_ROOT))
-    from tools.stats.export_test_times import TEST_TIMES_FILE
     from tools.testing.test_selections import (
         get_reordered_tests,
         get_test_case_configs,
-        calculate_shards,
     )
     HAVE_TEST_SELECTION_TOOLS = True
 except ImportError:
@@ -126,47 +122,11 @@ TESTS = discover_tests(
         "distributed/elastic/utils/distributed_test",
         "distributed/elastic/multiprocessing/api_test",
         "test_deploy",
+        "doctests",
     ]
 )
 
-# The doctests are a special case that don't correspond to a file that discover
-# tests can enable.
-TESTS = TESTS + ['doctests']
-
 FSDP_TEST = [test for test in TESTS if test.startswith("distributed/fsdp")]
-
-# Tests need to be run with pytest.
-USE_PYTEST_LIST = [
-    "distributed/pipeline/sync/skip/test_api",
-    "distributed/pipeline/sync/skip/test_gpipe",
-    "distributed/pipeline/sync/skip/test_inspect_skip_layout",
-    "distributed/pipeline/sync/skip/test_leak",
-    "distributed/pipeline/sync/skip/test_portal",
-    "distributed/pipeline/sync/skip/test_stash_pop",
-    "distributed/pipeline/sync/skip/test_tracker",
-    "distributed/pipeline/sync/skip/test_verify_skippables",
-    "distributed/pipeline/sync/test_balance",
-    "distributed/pipeline/sync/test_bugs",
-    "distributed/pipeline/sync/test_checkpoint",
-    "distributed/pipeline/sync/test_copy",
-    "distributed/pipeline/sync/test_deferred_batch_norm",
-    "distributed/pipeline/sync/test_dependency",
-    "distributed/pipeline/sync/test_inplace",
-    "distributed/pipeline/sync/test_microbatch",
-    "distributed/pipeline/sync/test_phony",
-    "distributed/pipeline/sync/test_pipe",
-    "distributed/pipeline/sync/test_pipeline",
-    "distributed/pipeline/sync/test_stream",
-    "distributed/pipeline/sync/test_transparency",
-    "distributed/pipeline/sync/test_worker",
-    "distributions/test_constraints",
-    "distributions/test_transforms",
-    "distributions/test_utils",
-    "test_typing",
-    "distributed/elastic/events/lib_test",
-    "distributed/elastic/agent/server/test/api_test",
-    "test_deploy",
-]
 
 WINDOWS_BLOCKLIST = [
     "distributed/nn/jit/test_instantiator",
@@ -289,6 +249,7 @@ PYTEST_INCOMPATIBLE = [
     "test_multiprocessing",  # some assertion failure about has_shm_files
     "test_cuda",  # test_mem_get_info, memory freed doesn't match
     "test_autograd",  # memory leak/amount of memory allocated doesn't match
+    "doctests",  # doesn't use run_test
 ]
 
 # if a test file takes longer than 5 min, we add it to TARGET_DET_LIST
@@ -368,7 +329,7 @@ def print_to_stderr(message):
     print(message, file=sys.stderr)
 
 
-def get_executable_command(options, allow_pytest, disable_coverage=False):
+def get_executable_command(options, disable_coverage=False):
     if options.coverage and not disable_coverage:
         executable = ["coverage", "run", "--parallel-mode", "--source=torch"]
     else:
@@ -397,7 +358,7 @@ def run_test(
         unittest_args.extend(["--import-slow-tests", "--import-disabled-tests"])
 
     # Extra arguments are not supported with pytest
-    executable = get_executable_command(options, allow_pytest=not extra_unittest_args)
+    executable = get_executable_command(options)
 
     # Can't call `python -m unittest test_*` here because it doesn't run code
     # in `if __name__ == '__main__': `. So call `python test_*.py` instead.
@@ -408,17 +369,8 @@ def run_test(
     return shell(command, test_directory, env=env)
 
 
-def test_cuda_primary_ctx(test_module, test_directory, options):
-    return run_test(
-        test_module, test_directory, options, extra_unittest_args=["--subprocess"]
-    )
-
-
-run_test_with_subprocess = functools.partial(run_test, extra_unittest_args=["--subprocess"])
-
-
-def get_run_test_with_subprocess_fn():
-    return lambda test_module, test_directory, options: run_test_with_subprocess(test_module, test_directory, options)
+def run_test_with_subprocess(test_module, test_directory, options):
+    return run_test(test_module, test_directory, options, extra_unittest_args=["--subprocess"])
 
 
 def _test_cpp_extensions_aot(test_directory, options, use_ninja):
@@ -678,23 +630,23 @@ def run_doctests(test_module, test_directory, options):
 
 
 CUSTOM_HANDLERS = {
-    "test_cuda_primary_ctx": test_cuda_primary_ctx,
-    "test_cuda_trace": get_run_test_with_subprocess_fn(),
+    "test_cuda_primary_ctx": run_test_with_subprocess,
+    "test_cuda_trace": run_test_with_subprocess,
     "test_cpp_extensions_aot_no_ninja": test_cpp_extensions_aot_no_ninja,
     "test_cpp_extensions_aot_ninja": test_cpp_extensions_aot_ninja,
     "distributed/test_distributed_spawn": test_distributed,
     "distributed/algorithms/quantization/test_quantization": test_distributed,
-    "distributed/test_c10d_nccl": get_run_test_with_subprocess_fn(),
-    "distributed/test_c10d_gloo": get_run_test_with_subprocess_fn(),
-    "distributed/test_c10d_common": get_run_test_with_subprocess_fn(),
-    "distributed/test_c10d_spawn_gloo": get_run_test_with_subprocess_fn(),
-    "distributed/test_c10d_spawn_nccl": get_run_test_with_subprocess_fn(),
-    "distributed/test_store": get_run_test_with_subprocess_fn(),
-    "distributed/test_pg_wrapper": get_run_test_with_subprocess_fn(),
-    "distributed/rpc/test_faulty_agent": get_run_test_with_subprocess_fn(),
-    "distributed/rpc/test_tensorpipe_agent": get_run_test_with_subprocess_fn(),
-    "distributed/rpc/test_share_memory": get_run_test_with_subprocess_fn(),
-    "distributed/rpc/cuda/test_tensorpipe_agent": get_run_test_with_subprocess_fn(),
+    "distributed/test_c10d_nccl": run_test_with_subprocess,
+    "distributed/test_c10d_gloo": run_test_with_subprocess,
+    "distributed/test_c10d_common": run_test_with_subprocess,
+    "distributed/test_c10d_spawn_gloo": run_test_with_subprocess,
+    "distributed/test_c10d_spawn_nccl": run_test_with_subprocess,
+    "distributed/test_store": run_test_with_subprocess,
+    "distributed/test_pg_wrapper": run_test_with_subprocess,
+    "distributed/rpc/test_faulty_agent": run_test_with_subprocess,
+    "distributed/rpc/test_tensorpipe_agent": run_test_with_subprocess,
+    "distributed/rpc/test_share_memory": run_test_with_subprocess,
+    "distributed/rpc/cuda/test_tensorpipe_agent": run_test_with_subprocess,
     "doctests": run_doctests,
 }
 
@@ -1014,9 +966,9 @@ def run_test_module(test: str, test_directory: str, options) -> Optional[str]:
     print_to_stderr("Running {} ... [{}]".format(test, datetime.now()))
     handler = CUSTOM_HANDLERS.get(test_module, run_test)
     return_code = handler(test_module, test_directory, options)
-    assert isinstance(return_code, int) and not isinstance(
-        return_code, bool
-    ), "Return code should be an integer"
+    assert isinstance(return_code, int) and not isinstance(return_code, bool), (
+        "Return code should be an integer"
+    )
     if return_code == 0:
         return None
 
@@ -1054,8 +1006,6 @@ def main():
     try:
         for test in selected_tests:
             options_clone = copy.deepcopy(options)
-            if test in USE_PYTEST_LIST:
-                options_clone.pytest = True
             err_message = run_test_module(test, test_directory, options_clone)
             if err_message is None:
                 continue
