@@ -1547,6 +1547,66 @@ def adaptive_avg_pool2d(input: Tensor, output_size: Tuple[int, int]):
     return ret / (length_h * length_w)
 
 
+@register_decomposition(aten.index_copy)
+def index_copy(x, dim, index, tensor):
+    return x.clone().index_copy_(dim, index, tensor)
+
+
+@register_decomposition(aten.index_add)
+def index_add(x, dim, index, tensor, *, alpha=1):
+    return x.clone().index_add_(dim, index, tensor, alpha=alpha)
+
+
+@register_decomposition(aten.index_select, disable_meta=True)
+def index_select(x, dim, index):
+    dim = utils.canonicalize_dims(x.ndim, dim)
+    utils.check(
+        index.ndim <= 1,
+        lambda: f"Index should have dimension 1 or 0 (got {index.ndim})",
+    )
+    utils.check(
+        utils.is_integer_dtype(index.dtype),
+        lambda: "Expected dtype int32 or int64 for index",
+    )
+    # Treat scalars as elements of \R^1
+    if x.ndim == 0:
+        return x.unsqueeze(0)[index].squeeze(0)
+    idx = (slice(None),) * dim + (index,)
+    return x[idx]
+
+
+@register_decomposition(aten.index_copy_)
+def index_copy_(x, dim, index, tensor):
+    dim = utils.canonicalize_dims(x.ndim, dim)
+    utils.check(
+        index.ndim <= 1,
+        lambda: f"Index should have dimension 1 or 0 (got {index.ndim})",
+    )
+    utils.check(
+        utils.is_integer_dtype(index.dtype),
+        lambda: "Expected dtype int32 or int64 for index",
+    )
+    idx = (slice(None),) * dim + (index,)
+    x[idx] = tensor
+    return x
+
+
+@register_decomposition(aten.index_add_)
+def index_add_(x, dim, index, tensor, *, alpha=1):
+    dim = utils.canonicalize_dims(x.ndim, dim)
+    utils.check(
+        index.ndim <= 1,
+        lambda: f"Index should have dimension 1 or 0 (got {index.ndim})",
+    )
+    utils.check(
+        utils.is_integer_dtype(index.dtype),
+        lambda: "Expected dtype int32 or int64 for index",
+    )
+    idx = (slice(None),) * dim + (index,)
+    x[idx] += alpha * tensor
+    return x
+
+
 def _squeeze_multiple(self: Tensor, dims: List[int]) -> Tensor:
     ndim = self.dim()
     wrapped_dims = utils.canonicalize_dims(ndim, dims)
